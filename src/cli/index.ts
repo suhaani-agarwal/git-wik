@@ -5,6 +5,8 @@ import { registerIndexCommand } from "./commands/index-cmd.js";
 import { registerEnrichCommand } from "./commands/enrich-cmd.js";
 import { registerStatusCommand } from "./commands/status-cmd.js";
 import { registerWhyCommand } from "./commands/why-cmd.js";
+import { registerDoctorCommand } from "./commands/doctor-cmd.js";
+import { registerInitMcpCommand } from "./commands/init-mcp-cmd.js";
 
 const program = new Command();
 
@@ -51,6 +53,8 @@ registerIndexCommand(program);
 registerEnrichCommand(program);
 registerStatusCommand(program);
 registerWhyCommand(program);
+registerDoctorCommand(program);
+registerInitMcpCommand(program);
 
 // ── App server (Phase 4 — dynamic import to avoid loading Hono in non-app paths)
 

@@ -15,6 +15,8 @@ Run a specific CLI command without building:
 ```bash
 npx tsx src/cli/index.ts index                          # auto-detect repo from git remote
 npx tsx src/cli/index.ts index <owner/repo>
+npx tsx src/cli/index.ts doctor
+npx tsx src/cli/index.ts init-mcp
 npx tsx src/cli/index.ts why src/auth/middleware.ts:42  # blame + PR context for a line
 npx tsx src/cli/index.ts why src/auth/middleware.ts     # most recent PR for the file
 npx tsx src/cli/index.ts issue <owner/repo> <number>
@@ -26,6 +28,24 @@ The MCP server (for use via `.mcp.json`) runs the built output:
 ```bash
 node dist/mcp/server.js
 ```
+
+## Local verification flow
+
+Use this sequence before releases or major refactors:
+
+```bash
+npm run typecheck
+npm test
+npx tsx src/cli/index.ts doctor
+npx tsx src/cli/index.ts init-mcp --print
+```
+
+Expected:
+- Typecheck/test pass
+- `doctor` should print `PASS` for Node and `gh` checks
+- `init-mcp --print` should emit JSON with:
+  - `mcpServers.git-wik.command = "npx"`
+  - `mcpServers.git-wik.args = ["-y", "git-wik", "serve"]`
 
 ## Architecture
 
@@ -72,9 +92,13 @@ MCP tool call / CLI
 6. `find_similar` — BM25 similarity search for issues/PRs.
 7. `get_pr_context` — Full PR context: decisions, constraints, rejected alternatives.
 
-**`src/cli/index.ts`** — Thin Commander wrapper. `serve` uses dynamic `import()` to avoid loading MCP SDK in CLI-only flows. New commands registered: `why` (via `why-cmd.ts`).
+**`src/cli/index.ts`** — Thin Commander wrapper. `serve` uses dynamic `import()` to avoid loading MCP SDK in CLI-only flows. Commands include `index`, `enrich`, `status`, `why`, `doctor`, and `init-mcp`.
 
 **`src/cli/commands/why-cmd.ts`** — `registerWhyCommand`: `git-wik why <file>[:<line>]`. Auto-detects repo from git remote.
+
+**`src/cli/commands/doctor-cmd.ts`** — `registerDoctorCommand`: checks Node, `gh`, auth status, repo detection, local DB, and MCP config presence.
+
+**`src/cli/commands/init-mcp-cmd.ts`** — `registerInitMcpCommand`: creates/updates `.mcp.json` with a default `git-wik` MCP server entry.
 
 **`src/intelligence/why.ts`** — `whyLine(repo, file, line)`: git blame → `fetchCommitPRs` → `assemblePRContext`. Falls back to file-level most-recent-PR if no line given. `blameFileLine` runs `git blame -L N,N --porcelain`.
 

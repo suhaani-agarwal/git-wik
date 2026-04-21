@@ -2,6 +2,11 @@
 
 > Local knowledge graph for GitHub repos. Gives Claude Code token-efficient answers to "why does this code exist?" instead of making it read thousands of lines of raw PRs and issues.
 
+[![npm version](https://img.shields.io/npm/v/git-wik)](https://www.npmjs.com/package/git-wik)
+[![npm downloads](https://img.shields.io/npm/dm/git-wik)](https://www.npmjs.com/package/git-wik)
+[![license](https://img.shields.io/github/license/git-wik/git-wik)](https://github.com/git-wik/git-wik/blob/main/LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/git-wik/git-wik/release.yml?label=release)](https://github.com/git-wik/git-wik/actions/workflows/release.yml)
+
 git-wik builds a local SQLite graph of a GitHub repo's full history — issues, PRs, reviewer decisions, cross-references, and file co-change patterns. When you ask Claude Code to touch a file or implement a feature, it can call git-wik's MCP tool and get a compact, structured answer (~700 tokens) instead of spending its context window reading raw GitHub pages.
 
 ---
@@ -68,6 +73,16 @@ A typical file query using raw GitHub API calls might consume 5,000–15,000 tok
 2. **Relevance scoring** — only the highest-signal entities fill the token budget
 3. **Evidence-gated inference** — LLM-extracted insights only shown when `confidence ≥ 0.7` AND supporting rationale exists, always marked `[inferred:N.NN]`
 
+### Benchmark snapshot
+
+These are representative values from real repos and will vary by project size:
+
+| Workflow | Raw GitHub reading | With git-wik |
+|----------|---------------------|--------------|
+| "Why does this line/file exist?" | 5,000–15,000 tokens | 150–700 tokens |
+| "Find related implementation history" | 10–30 manual link hops | 1 query (`get_context`) |
+| "Time to first contextual answer" | 2–10 minutes | 5–20 seconds |
+
 ---
 
 ## Prerequisites
@@ -96,6 +111,12 @@ Maintainers: see `RELEASING.md` for npm publish setup and release steps.
 
 ## Quick start
 
+**0. Run setup checks**:
+
+```bash
+git-wik doctor
+```
+
 **1. Index a repo** (fetches and builds the local graph):
 
 ```bash
@@ -104,7 +125,19 @@ git-wik index expressjs/express
 
 This takes 30–90 seconds for most repos. It fetches all issues and PRs, builds the relationship graph, and runs co-change analysis on recent commits.
 
-**2. Add to Claude Code** (in your project's `.mcp.json`):
+**2. Generate MCP config automatically**:
+
+```bash
+git-wik init-mcp
+```
+
+This writes `.mcp.json` in your current directory. If you want to inspect without writing:
+
+```bash
+git-wik init-mcp --print
+```
+
+**3. Add to Claude Code manually** (if you do not want `init-mcp`):
 
 ```json
 {
@@ -130,7 +163,7 @@ Or with npx (no global install needed):
 }
 ```
 
-**3. Use in Claude Code**:
+**4. Use in Claude Code**:
 
 ```
 What changed in src/auth/middleware.ts and why?
@@ -243,6 +276,52 @@ Auto-detects the GitHub repo from your git remote. Output includes:
 - The PR that introduced that commit
 - LLM-extracted rationale (confidence-gated, always marked `[inferred]`)
 - Rejected alternatives and constraints from the PR discussion
+
+---
+
+### `git-wik doctor`
+
+Checks whether your local environment is ready:
+
+```bash
+git-wik doctor
+```
+
+Checks:
+- Node.js version
+- `gh` CLI availability
+- `gh auth` status
+- GitHub repo auto-detection
+- local graph DB presence
+- `.mcp.json` presence
+
+---
+
+### `git-wik init-mcp`
+
+Creates or updates `.mcp.json` with a `git-wik` MCP server entry:
+
+```bash
+git-wik init-mcp
+
+# Options:
+git-wik init-mcp --target .cursor/mcp.json   # custom config path
+git-wik init-mcp --print                     # print config only
+git-wik init-mcp --force                     # overwrite existing git-wik entry
+```
+
+Default entry:
+
+```json
+{
+  "mcpServers": {
+    "git-wik": {
+      "command": "npx",
+      "args": ["-y", "git-wik", "serve"]
+    }
+  }
+}
+```
 
 ---
 
@@ -480,6 +559,61 @@ npm test                                  # vitest
 npm run typecheck                         # tsc --noEmit
 npm run build                             # compile to dist/
 ```
+
+## How to test locally (with expected output)
+
+1. **Environment checks**
+
+```bash
+git-wik doctor
+```
+
+Expected:
+- `PASS` for Node and GitHub CLI
+- `WARN` for missing index or `.mcp.json` is acceptable on first run
+
+2. **Build index**
+
+```bash
+git-wik index expressjs/express
+```
+
+Expected:
+- progress phases (fetching + co-change)
+- final line similar to: `Done. <N> nodes · <M> edges · <K> file pairs`
+- DB path under `~/.git-wik/expressjs-express/graph.db`
+
+3. **Create MCP config**
+
+```bash
+git-wik init-mcp
+```
+
+Expected:
+- `Wrote MCP config to .../.mcp.json`
+
+4. **Explain a file or line**
+
+```bash
+git-wik why src/router/index.js --repo expressjs/express
+```
+
+Expected:
+- file header
+- PR title/number
+- reviewer list and changed files
+- optional WHY / constraints / rejected approaches if enriched data exists
+
+5. **Run quality checks**
+
+```bash
+npm run typecheck
+npm test
+```
+
+Expected:
+- no TypeScript errors
+- all tests passing
 
 ### Project structure
 
