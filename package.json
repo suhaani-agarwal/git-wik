@@ -1,6 +1,6 @@
 {
   "name": "git-wik",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "MCP server that builds a local relation graph of a GitHub repo's conversation history and serves token-efficient intelligence to Claude Code.",
   "license": "MIT",
   "type": "module",
