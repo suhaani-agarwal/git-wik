@@ -1,0 +1,64 @@
+{
+  "name": "git-wik",
+  "version": "0.1.0",
+  "description": "MCP server that builds a local relation graph of a GitHub repo's conversation history and serves token-efficient intelligence to Claude Code.",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/git-wik/git-wik.git"
+  },
+  "homepage": "https://github.com/git-wik/git-wik#readme",
+  "bugs": {
+    "url": "https://github.com/git-wik/git-wik/issues"
+  },
+  "bin": {
+    "git-wik": "./dist/cli/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx src/cli/index.ts",
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "postbuild": "chmod +x dist/cli/index.js",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "github",
+    "claude",
+    "knowledge-graph",
+    "developer-tools",
+    "context-engineering",
+    "code-intelligence",
+    "sqlite"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.10.0",
+    "better-sqlite3": "^11.0.0",
+    "commander": "^12.0.0",
+    "execa": "^9.0.0"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "^0.40.0",
+    "@google/genai": "^1.50.1",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^2.1.9",
+    "tsup": "^8.4.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0",
+    "vitest": "^2.1.9"
+  }
+}
