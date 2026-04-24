@@ -4,6 +4,7 @@ import { makeTestDb } from "../helpers.js";
 import {
   upsertIssue,
   upsertPR,
+  upsertMilestone,
   upsertEdge,
   upsertNodeKeywords,
   getIssue,
@@ -65,6 +66,27 @@ describe("upsertPR + getPR", () => {
   });
 });
 
+describe("upsertMilestone", () => {
+  it("defaults invalid milestone fields to avoid NOT NULL failures", () => {
+    expect(() =>
+      upsertMilestone(db, {
+        id: "test/repo::milestone::1",
+        repo: "test/repo",
+        number: 1,
+        title: "" as unknown as string,
+        state: null as unknown as string,
+      })
+    ).not.toThrow();
+
+    const row = db
+      .prepare("SELECT title, state FROM milestones WHERE id = ?")
+      .get("test/repo::milestone::1") as { title: string; state: string } | undefined;
+
+    expect(row?.title).toBe("Milestone 1");
+    expect(row?.state).toBe("open");
+  });
+});
+
 // ── CO_CHANGES_WITH weight accumulation ───────────────────────────────────────
 
 describe("CO_CHANGES_WITH edge weight accumulation", () => {
@@ -93,6 +115,31 @@ describe("CO_CHANGES_WITH edge weight accumulation", () => {
     const edges = getEdgesFrom(db, "pr", "repo#pr#1", "TOUCHES");
     expect(edges).toHaveLength(1);
     expect(edges[0]?.weight).toBe(1);
+  });
+
+  it("updates metadata for duplicate non-cochange edges", () => {
+    upsertEdge(db, {
+      from_type: "pr",
+      from_id: "repo#pr#2",
+      edge_type: "REVIEWED_BY",
+      to_type: "contributor",
+      to_id: "repo::bob",
+      weight: 1,
+      metadata_json: JSON.stringify({ states: ["CHANGES_REQUESTED"] }),
+    });
+    upsertEdge(db, {
+      from_type: "pr",
+      from_id: "repo#pr#2",
+      edge_type: "REVIEWED_BY",
+      to_type: "contributor",
+      to_id: "repo::bob",
+      weight: 1,
+      metadata_json: JSON.stringify({ states: ["CHANGES_REQUESTED", "APPROVED"] }),
+    });
+
+    const edges = getEdgesFrom(db, "pr", "repo#pr#2", "REVIEWED_BY");
+    expect(edges).toHaveLength(1);
+    expect(edges[0]?.metadata_json).toContain("APPROVED");
   });
 });
 

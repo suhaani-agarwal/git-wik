@@ -288,8 +288,11 @@ export function upsertEdge(
     `).run(edge);
   } else {
     db.prepare(`
-      INSERT OR IGNORE INTO edges(from_type,from_id,edge_type,to_type,to_id,weight,metadata_json,created_at)
+      INSERT INTO edges(from_type,from_id,edge_type,to_type,to_id,weight,metadata_json,created_at)
       VALUES(@from_type,@from_id,@edge_type,@to_type,@to_id,@weight,@metadata_json,@created_at)
+      ON CONFLICT(from_type,from_id,edge_type,to_type,to_id) DO UPDATE SET
+        weight=excluded.weight,
+        metadata_json=COALESCE(excluded.metadata_json, edges.metadata_json)
     `).run({ ...edge, created_at: now });
   }
 }
@@ -407,11 +410,22 @@ export function upsertLabel(db: Database.Database, l: LabelNode): void {
 }
 
 export function upsertMilestone(db: Database.Database, m: MilestoneNode): void {
+  const safeTitle = typeof m.title === "string" && m.title.trim()
+    ? m.title
+    : `Milestone ${m.number}`;
+  const safeState = typeof m.state === "string" && m.state.trim()
+    ? m.state
+    : "open";
+  const normalized: MilestoneNode = {
+    ...m,
+    title: safeTitle,
+    state: safeState,
+  };
   db.prepare(`
     INSERT INTO milestones (id,repo,number,title,state)
     VALUES (@id,@repo,@number,@title,@state)
     ON CONFLICT(id) DO UPDATE SET title=excluded.title, state=excluded.state
-  `).run(m);
+  `).run(normalized);
 }
 
 export function upsertNodeKeywords(

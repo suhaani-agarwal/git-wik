@@ -3,34 +3,25 @@ import { formatImplementationContext } from "../../intelligence/formatter.js";
 
 export const findImplementationContextTool = {
   name: "find_implementation_context",
-  description: `Find relevant PRs, design decisions, constraints, and file context for implementing a feature or fixing a bug.
-Given a natural-language query like "add rate limiting" or "fix auth token refresh", searches the indexed graph for:
-- PRs that solved similar problems (with their outcomes and approaches)
-- Design decisions made during those PRs (problem → choice → rationale)
-- Constraints that must be respected
-- Approaches that were explicitly rejected
-- Files most relevant to the change, plus their co-change partners
-
-Returns a structured, token-efficient context package (<700 tokens).
-Requires the repo to have been indexed with \`git-wik index <repo>\`.`,
+  description: `Pre-implementation context for a keyword/feature: prior PRs, decisions, constraints, rejected approaches. Use get_context for file/issue/PR queries.`,
   inputSchema: {
     type: "object",
     properties: {
       repo: {
         type: "string",
-        description: 'GitHub repo in "owner/name" format, e.g. "expressjs/express"',
+        description: "owner/name",
       },
       query: {
         type: "string",
-        description: "Natural-language description of what you want to implement or investigate",
+        description: "Feature or keyword to research",
       },
       max_prs: {
         type: "number",
-        description: "Max number of relevant PRs to return (default: 3)",
+        description: "Max PRs (default 3)",
       },
       max_files: {
         type: "number",
-        description: "Max number of relevant files to return (default: 3)",
+        description: "Max files (default 3)",
       },
     },
     required: ["repo", "query"],

@@ -3,26 +3,22 @@ import { formatIssueIntelligence } from "../../intelligence/formatter.js";
 
 export const researchIssueTool = {
   name: "research_issue",
-  description: `Fetch structured intelligence about a GitHub issue from a local graph cache.
-Returns the issue description, related PRs (with code review threads, files changed, reviewers), and contributor list.
-Use this when you need context on why a decision was made, what alternatives were considered, or what the history of a bug/feature is.
-The graph is populated on first call using the gh CLI; subsequent calls within 2 hours are instant (served from local SQLite).
-No API key required. Requires the gh CLI to be authenticated.`,
+  description: `Full context for a GitHub issue: related PRs, contributors, discussion. Cached 2h via gh CLI.`,
   inputSchema: {
     type: "object",
     properties: {
       repo: {
         type: "string",
-        description: 'GitHub repo in "owner/name" format, e.g. "expressjs/express"',
+        description: "owner/name",
       },
       issue_number: {
         type: "number",
-        description: "The issue number",
+        description: "Issue number",
       },
       depth: {
         type: "string",
         enum: ["brief", "full"],
-        description: 'Response verbosity. "brief" (default, <300 tokens) or "full" (includes raw discussion threads, up to 1200 tokens)',
+        description: '"brief" (<300 tokens, default) or "full" (up to 1200 tokens)',
       },
     },
     required: ["repo", "issue_number"],

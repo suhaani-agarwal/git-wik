@@ -6,7 +6,7 @@
  * useful context budget for a single tool call.
  */
 
-const CHARS_PER_TOKEN = 4;
+const CHARS_PER_TOKEN = 3;
 
 /**
  * Truncate Markdown content to stay within a token budget.

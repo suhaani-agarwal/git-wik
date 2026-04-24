@@ -173,6 +173,41 @@ Claude Code calls `get_context({ repo: "your/repo", query: "src/auth/middleware.
 
 ---
 
+## Why this still matters if `git log` exists
+
+For narrow questions about a single file's commit history, plain `git log` can be enough.
+
+`git-wik` is designed for cases where agents need cross-artifact reasoning in a compact output:
+
+- PR review rationale (not just commit diff)
+- linked issues and references (`fixes`, `mentions`, `related`)
+- constraints and rejected alternatives from discussion
+- co-changed files likely impacted by your edit
+- one compact answer instead of multiple shell/API hops
+
+### Killer demo (where git-wik wins)
+
+Ask your agent:
+
+```text
+Use git-wik MCP tools first. For src/auth/middleware.ts, explain:
+1) what changed recently,
+2) why that direction was chosen,
+3) what constraints reviewers enforced,
+4) which 3 files co-change most with it,
+5) which open issues may regress if we edit it.
+```
+
+With raw `git log`, this usually requires many follow-up calls and manual synthesis.
+With `git-wik`, this is a single `get_context` call plus optional `get_file_lore` deepening.
+
+### Make agents use MCP first
+
+If your agent defaults to shell commands, add a rule that forces MCP-first behavior.
+Copy-paste policy and examples live in `docs/AGENT_USAGE.md`.
+
+---
+
 ## CLI commands
 
 ### `git-wik index [repo]`

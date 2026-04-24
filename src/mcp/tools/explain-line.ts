@@ -2,27 +2,13 @@ import { whyLine } from "../../intelligence/why.js";
 
 export const explainLineTool = {
   name: "explain_line",
-  description: `Explain why a specific line of code exists by tracing it through git blame → PR → design decisions.
-
-Given a file path and optional line number, returns:
-- The commit that last changed that line (git blame)
-- The PR that introduced that commit
-- Why that PR was made (LLM-extracted rationale, confidence-gated)
-- What alternatives were rejected
-- What constraints it enforced
-- Which issues it fixed
-
-Use this when you're about to modify a line and want to understand the original intent before changing it.
-
-Examples:
-  explain_line({ repo: "owner/repo", file: "src/auth/middleware.ts", line: 42 })
-  explain_line({ repo: "owner/repo", file: "src/auth/middleware.ts" })  // most recent PR for file`,
+  description: `Why does this line exist? Traces git blame → commit → PR → design decisions and rejected alternatives. Use before modifying a line.`,
   inputSchema: {
     type: "object",
     properties: {
-      repo: { type: "string", description: "GitHub repo in owner/name format" },
+      repo: { type: "string", description: "owner/name" },
       file: { type: "string", description: "File path relative to repo root" },
-      line: { type: "number", description: "Line number (optional — omit for file-level context)" },
+      line: { type: "number", description: "Line number (omit for file-level)" },
     },
     required: ["repo", "file"],
   },

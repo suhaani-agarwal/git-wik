@@ -4,24 +4,21 @@ import { formatSimilarResults } from "../../intelligence/formatter.js";
 
 export const findSimilarTool = {
   name: "find_similar",
-  description: `Search the indexed graph for issues and PRs similar to a query.
-Uses BM25 full-text search to find the most relevant issues and pull requests, ranked by relevance.
-Useful for discovering prior art before starting an implementation, or finding duplicates before filing an issue.
-Requires the repo to have been indexed with \`git-wik index <repo>\`.`,
+  description: `BM25 search for issues and PRs similar to a query. Use before filing an issue or starting an implementation.`,
   inputSchema: {
     type: "object",
     properties: {
       repo: {
         type: "string",
-        description: 'GitHub repo in "owner/name" format, e.g. "expressjs/express"',
+        description: "owner/name",
       },
       query: {
         type: "string",
-        description: "Natural-language search query",
+        description: "Search query",
       },
       limit: {
         type: "number",
-        description: "Max number of results to return (default: 5, max: 10)",
+        description: "Max results (default 5, max 10)",
       },
     },
     required: ["repo", "query"],

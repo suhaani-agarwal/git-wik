@@ -24,6 +24,8 @@ npx tsx src/cli/index.ts file <owner/repo> <path>
 npx tsx src/cli/index.ts serve
 ```
 
+Agent policy template for MCP-first usage is documented in `docs/AGENT_USAGE.md`.
+
 The MCP server (for use via `.mcp.json`) runs the built output:
 ```bash
 node dist/mcp/server.js

@@ -1,22 +1,21 @@
 import { getFileLore } from "../../intelligence/file-lore.js";
 import { formatFileLore } from "../../intelligence/formatter.js";
+import { getDb } from "../../graph/db.js";
+import { hydrateFileContextIfSparse } from "./hydrate-file-context.js";
 
 export const getFileLoreTool = {
   name: "get_file_lore",
-  description: `Return the history and context behind a specific file in a GitHub repo.
-Shows which PRs changed the file, what decisions were made in those PRs, constraints that apply, and which other files tend to change together (co-change coupling).
-Use this to understand why a file exists or is structured the way it is, before making changes.
-Only covers data already in the local graph — run \`git-wik index\` to populate context for the repo.`,
+  description: `File history: PRs that changed it, decisions made, constraints enforced, co-change partners.`,
   inputSchema: {
     type: "object",
     properties: {
       repo: {
         type: "string",
-        description: 'GitHub repo in "owner/name" format',
+        description: "owner/name",
       },
       path: {
         type: "string",
-        description: "File path relative to repo root, e.g. lib/router/index.js",
+        description: "File path relative to repo root",
       },
     },
     required: ["repo", "path"],
@@ -35,6 +34,11 @@ export async function handleGetFileLore(args: Record<string, unknown>) {
   }
 
   try {
+    const db = getDb(repo);
+    await Promise.race([
+      hydrateFileContextIfSparse(db, repo, filePath, { maxPrHydrations: 16, targetTouchEdges: 3 }),
+      new Promise<void>((resolve) => setTimeout(resolve, 10000)),
+    ]);
     const lore = await getFileLore(repo, filePath);
     return { content: [{ type: "text" as const, text: formatFileLore(lore) }] };
   } catch (err) {

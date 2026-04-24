@@ -10,20 +10,17 @@ import { truncateAt } from "../../shared/token-budget.js";
 
 export const getPRContextTool = {
   name: "get_pr_context",
-  description: `Get structured intelligence for a specific pull request.
-Returns the PR's problem statement, chosen approach, files changed, design decisions, constraints, and rejected alternatives.
-Use this when you know a specific PR number is relevant and want its full decision context.
-Requires the repo to have been indexed with \`git-wik index <repo>\`.`,
+  description: `Decision context for a specific PR: approach, files changed, design decisions, constraints, rejected alternatives.`,
   inputSchema: {
     type: "object",
     properties: {
       repo: {
         type: "string",
-        description: 'GitHub repo in "owner/name" format, e.g. "expressjs/express"',
+        description: "owner/name",
       },
       pr_number: {
         type: "number",
-        description: "The pull request number",
+        description: "PR number",
       },
     },
     required: ["repo", "pr_number"],

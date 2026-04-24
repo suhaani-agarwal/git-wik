@@ -4,6 +4,7 @@ import {
   extractReferencedPRNumbers,
   parsePRFiles,
   parsePRReviewers,
+  parsePRReviewerStates,
   parsePROutcome,
   buildThreadText,
   buildPRThreadText,
@@ -117,6 +118,24 @@ describe("parsePRReviewers", () => {
       ],
     } as GhPRRaw;
     expect(parsePRReviewers(pr)).toHaveLength(1);
+  });
+});
+
+describe("parsePRReviewerStates", () => {
+  it("captures distinct review states per reviewer", () => {
+    const pr = {
+      author: { login: "alice" },
+      reviews: [
+        { author: { login: "bob" }, state: "CHANGES_REQUESTED", submittedAt: "" },
+        { author: { login: "bob" }, state: "APPROVED", submittedAt: "" },
+      ],
+    } as GhPRRaw;
+
+    const rows = parsePRReviewerStates(pr);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.login).toBe("bob");
+    expect(rows[0]?.states).toContain("CHANGES_REQUESTED");
+    expect(rows[0]?.states).toContain("APPROVED");
   });
 });
 

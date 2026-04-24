@@ -424,8 +424,11 @@ function upsertEdge(db, edge) {
     `).run(edge);
   } else {
     db.prepare(`
-      INSERT OR IGNORE INTO edges(from_type,from_id,edge_type,to_type,to_id,weight,metadata_json,created_at)
+      INSERT INTO edges(from_type,from_id,edge_type,to_type,to_id,weight,metadata_json,created_at)
       VALUES(@from_type,@from_id,@edge_type,@to_type,@to_id,@weight,@metadata_json,@created_at)
+      ON CONFLICT(from_type,from_id,edge_type,to_type,to_id) DO UPDATE SET
+        weight=excluded.weight,
+        metadata_json=COALESCE(excluded.metadata_json, edges.metadata_json)
     `).run({ ...edge, created_at: now });
   }
 }
@@ -480,11 +483,18 @@ function upsertLabel(db, l2) {
   `).run(l2);
 }
 function upsertMilestone(db, m3) {
+  const safeTitle = typeof m3.title === "string" && m3.title.trim() ? m3.title : `Milestone ${m3.number}`;
+  const safeState = typeof m3.state === "string" && m3.state.trim() ? m3.state : "open";
+  const normalized = {
+    ...m3,
+    title: safeTitle,
+    state: safeState
+  };
   db.prepare(`
     INSERT INTO milestones (id,repo,number,title,state)
     VALUES (@id,@repo,@number,@title,@state)
     ON CONFLICT(id) DO UPDATE SET title=excluded.title, state=excluded.state
-  `).run(m3);
+  `).run(normalized);
 }
 function upsertNodeKeywords(db, nodeId, nodeType, keywords) {
   const now = Math.floor(Date.now() / 1e3);
@@ -51601,16 +51611,17 @@ function extractReferencedPRNumbers(timeline) {
 function parsePRFiles(pr2) {
   return (pr2.files ?? []).map((f4) => f4.path);
 }
-function parsePRReviewers(pr2) {
+function parsePRReviewerStates(pr2) {
   const author = pr2.author?.login ?? "";
-  const seen = /* @__PURE__ */ new Set();
+  const seen = /* @__PURE__ */ new Map();
   for (const r3 of pr2.reviews ?? []) {
     const login = r3.author?.login ?? "";
     if (login && login !== author && !login.endsWith("[bot]")) {
-      seen.add(login);
+      if (!seen.has(login)) seen.set(login, /* @__PURE__ */ new Set());
+      if (r3.state) seen.get(login).add(r3.state);
     }
   }
-  return [...seen];
+  return [...seen.entries()].map(([login, states]) => ({ login, states: [...states] }));
 }
 function parsePROutcome(pr2) {
   if (pr2.mergedAt || pr2.state === "MERGED") return "merged";
@@ -51916,14 +51927,15 @@ function upsertLabelsForNode(db, repo, nodeType, nodeId, labels) {
   }
 }
 function upsertMilestoneForNode(db, repo, nodeType, nodeId, milestone) {
-  if (!milestone) return;
-  const msId = `${repo}::milestone::${milestone.number}`;
+  const normalized = normalizeMilestone(milestone);
+  if (!normalized) return;
+  const msId = `${repo}::milestone::${normalized.number}`;
   upsertMilestone(db, {
     id: msId,
     repo,
-    number: milestone.number,
-    title: milestone.title,
-    state: milestone.state
+    number: normalized.number,
+    title: normalized.title,
+    state: normalized.state
   });
   upsertEdge(db, {
     from_type: nodeType,
@@ -51934,6 +51946,16 @@ function upsertMilestoneForNode(db, repo, nodeType, nodeId, milestone) {
     weight: 1,
     metadata_json: null
   });
+}
+function normalizeMilestone(milestone) {
+  if (!milestone || !Number.isInteger(milestone.number)) return null;
+  const safeTitle = typeof milestone.title === "string" && milestone.title.trim() ? milestone.title : `Milestone ${milestone.number}`;
+  const safeState = typeof milestone.state === "string" && milestone.state.trim() ? milestone.state : "open";
+  return {
+    number: milestone.number,
+    title: safeTitle,
+    state: safeState
+  };
 }
 async function populateFromIssue(repo, issueNumber, opts = {}) {
   const db = getDb(repo);
@@ -52067,10 +52089,18 @@ async function _upsertPR(db, repo, pr2, fixesIssueId, provider) {
     upsertContributor(db, { id: contribId, repo, username: pr2.author.login, display_name: null });
     upsertEdge(db, { from_type: "pr", from_id: prId, edge_type: "AUTHORED_BY", to_type: "contributor", to_id: contribId, weight: 1, metadata_json: null });
   }
-  for (const login of parsePRReviewers(pr2)) {
-    const contribId = `${repo}::${login}`;
-    upsertContributor(db, { id: contribId, repo, username: login, display_name: null });
-    upsertEdge(db, { from_type: "pr", from_id: prId, edge_type: "REVIEWED_BY", to_type: "contributor", to_id: contribId, weight: 1, metadata_json: null });
+  for (const reviewer of parsePRReviewerStates(pr2)) {
+    const contribId = `${repo}::${reviewer.login}`;
+    upsertContributor(db, { id: contribId, repo, username: reviewer.login, display_name: null });
+    upsertEdge(db, {
+      from_type: "pr",
+      from_id: prId,
+      edge_type: "REVIEWED_BY",
+      to_type: "contributor",
+      to_id: contribId,
+      weight: 1,
+      metadata_json: JSON.stringify({ states: reviewer.states })
+    });
   }
   if (shouldEnrich(pr2)) {
     const result = await extractThread(prThreadText, provider ?? "auto");
@@ -52148,7 +52178,15 @@ async function populateRepoIndex(repo, opts = {}) {
     }
     const milestones = await fetchMilestones(repo);
     for (const m3 of milestones) {
-      upsertMilestone(db, { id: `${repo}::milestone::${m3.number}`, repo, number: m3.number, title: m3.title, state: m3.state });
+      const normalized = normalizeMilestone(m3);
+      if (!normalized) continue;
+      upsertMilestone(db, {
+        id: `${repo}::milestone::${normalized.number}`,
+        repo,
+        number: normalized.number,
+        title: normalized.title,
+        state: normalized.state
+      });
     }
     markFetched(db, repo, "repo:labels");
   }
@@ -52215,7 +52253,7 @@ async function researchIssue(repo, issueNumber) {
 }
 
 // src/shared/token-budget.ts
-var CHARS_PER_TOKEN = 4;
+var CHARS_PER_TOKEN = 3;
 function formatWithBudget(content, tokenBudget = 700) {
   const charLimit = tokenBudget * CHARS_PER_TOKEN;
   if (content.length <= charLimit) return content;
@@ -52467,26 +52505,22 @@ function relativeAge(isoTimestamp) {
 // src/mcp/tools/research-issue.ts
 var researchIssueTool = {
   name: "research_issue",
-  description: `Fetch structured intelligence about a GitHub issue from a local graph cache.
-Returns the issue description, related PRs (with code review threads, files changed, reviewers), and contributor list.
-Use this when you need context on why a decision was made, what alternatives were considered, or what the history of a bug/feature is.
-The graph is populated on first call using the gh CLI; subsequent calls within 2 hours are instant (served from local SQLite).
-No API key required. Requires the gh CLI to be authenticated.`,
+  description: `Full context for a GitHub issue: related PRs, contributors, discussion. Cached 2h via gh CLI.`,
   inputSchema: {
     type: "object",
     properties: {
       repo: {
         type: "string",
-        description: 'GitHub repo in "owner/name" format, e.g. "expressjs/express"'
+        description: "owner/name"
       },
       issue_number: {
         type: "number",
-        description: "The issue number"
+        description: "Issue number"
       },
       depth: {
         type: "string",
         enum: ["brief", "full"],
-        description: 'Response verbosity. "brief" (default, <300 tokens) or "full" (includes raw discussion threads, up to 1200 tokens)'
+        description: '"brief" (<300 tokens, default) or "full" (up to 1200 tokens)'
       }
     },
     required: ["repo", "issue_number"]
@@ -52574,22 +52608,88 @@ async function getFileLore(repo, filePath) {
 }
 
 // src/mcp/tools/get-file-lore.ts
+init_db();
+
+// src/mcp/tools/hydrate-file-context.ts
+var PR_TIMEOUT_MS = 4e3;
+function getTouchEdgeCount(db, fileId) {
+  const row = db.prepare(
+    "SELECT COUNT(*) as n FROM edges WHERE edge_type='TOUCHES' AND to_type='file' AND to_id=?"
+  ).get(fileId);
+  return row.n;
+}
+function listCandidatePRNumbers(db, repo, filePath, limit = 80) {
+  const baseName = filePath.split("/").pop() ?? filePath;
+  const stem = baseName.includes(".") ? baseName.slice(0, baseName.lastIndexOf(".")) : baseName;
+  const likeStem = `%${stem}%`;
+  const likeBase = `%${baseName}%`;
+  const titleHits = db.prepare(
+    `SELECT number
+       FROM pull_requests
+       WHERE repo = ? AND (title LIKE ? OR title LIKE ?)
+       ORDER BY COALESCE(merged_at, closed_at, fetched_at) DESC
+       LIMIT 30`
+  ).all(repo, likeStem, likeBase);
+  const recents = db.prepare(
+    `SELECT number
+       FROM pull_requests
+       WHERE repo = ?
+       ORDER BY COALESCE(merged_at, closed_at, fetched_at) DESC
+       LIMIT ?`
+  ).all(repo, limit);
+  const seen = /* @__PURE__ */ new Set();
+  const merged = [...titleHits, ...recents].map((r3) => r3.number).filter((n2) => Number.isInteger(n2) && n2 > 0).filter((n2) => {
+    if (seen.has(n2)) return false;
+    seen.add(n2);
+    return true;
+  });
+  return merged;
+}
+async function populateWithTimeout(repo, prNumber) {
+  await Promise.race([
+    populateFromPR(repo, prNumber, { provider: "auto" }),
+    new Promise(
+      (_2, reject) => setTimeout(() => reject(new Error("hydration timeout")), PR_TIMEOUT_MS)
+    )
+  ]);
+}
+async function hydrateFileContextIfSparse(db, repo, filePath, opts = {}) {
+  const maxPrHydrations = opts.maxPrHydrations ?? 12;
+  const targetTouchEdges = opts.targetTouchEdges ?? 2;
+  const fileId = `${repo}::${filePath}`;
+  let touchEdges = getTouchEdgeCount(db, fileId);
+  if (touchEdges >= targetTouchEdges) {
+    return { hydratedPRs: 0, touchEdges };
+  }
+  const candidates = listCandidatePRNumbers(db, repo, filePath);
+  let hydratedPRs = 0;
+  for (const prNumber of candidates) {
+    if (hydratedPRs >= maxPrHydrations) break;
+    try {
+      await populateWithTimeout(repo, prNumber);
+      hydratedPRs++;
+    } catch {
+    }
+    touchEdges = getTouchEdgeCount(db, fileId);
+    if (touchEdges >= targetTouchEdges) break;
+  }
+  return { hydratedPRs, touchEdges };
+}
+
+// src/mcp/tools/get-file-lore.ts
 var getFileLoreTool = {
   name: "get_file_lore",
-  description: `Return the history and context behind a specific file in a GitHub repo.
-Shows which PRs changed the file, what decisions were made in those PRs, constraints that apply, and which other files tend to change together (co-change coupling).
-Use this to understand why a file exists or is structured the way it is, before making changes.
-Only covers data already in the local graph \u2014 run \`git-wik index\` to populate context for the repo.`,
+  description: `File history: PRs that changed it, decisions made, constraints enforced, co-change partners.`,
   inputSchema: {
     type: "object",
     properties: {
       repo: {
         type: "string",
-        description: 'GitHub repo in "owner/name" format'
+        description: "owner/name"
       },
       path: {
         type: "string",
-        description: "File path relative to repo root, e.g. lib/router/index.js"
+        description: "File path relative to repo root"
       }
     },
     required: ["repo", "path"]
@@ -52605,6 +52705,11 @@ async function handleGetFileLore(args) {
     return { content: [{ type: "text", text: "Error: missing or invalid `path`" }], isError: true };
   }
   try {
+    const db = getDb(repo);
+    await Promise.race([
+      hydrateFileContextIfSparse(db, repo, filePath, { maxPrHydrations: 16, targetTouchEdges: 3 }),
+      new Promise((resolve) => setTimeout(resolve, 1e4))
+    ]);
     const lore = await getFileLore(repo, filePath);
     return { content: [{ type: "text", text: formatFileLore(lore) }] };
   } catch (err) {
@@ -53003,34 +53108,25 @@ function parseInlineEnrichment(bodySummary) {
 // src/mcp/tools/find-implementation-context.ts
 var findImplementationContextTool = {
   name: "find_implementation_context",
-  description: `Find relevant PRs, design decisions, constraints, and file context for implementing a feature or fixing a bug.
-Given a natural-language query like "add rate limiting" or "fix auth token refresh", searches the indexed graph for:
-- PRs that solved similar problems (with their outcomes and approaches)
-- Design decisions made during those PRs (problem \u2192 choice \u2192 rationale)
-- Constraints that must be respected
-- Approaches that were explicitly rejected
-- Files most relevant to the change, plus their co-change partners
-
-Returns a structured, token-efficient context package (<700 tokens).
-Requires the repo to have been indexed with \`git-wik index <repo>\`.`,
+  description: `Pre-implementation context for a keyword/feature: prior PRs, decisions, constraints, rejected approaches. Use get_context for file/issue/PR queries.`,
   inputSchema: {
     type: "object",
     properties: {
       repo: {
         type: "string",
-        description: 'GitHub repo in "owner/name" format, e.g. "expressjs/express"'
+        description: "owner/name"
       },
       query: {
         type: "string",
-        description: "Natural-language description of what you want to implement or investigate"
+        description: "Feature or keyword to research"
       },
       max_prs: {
         type: "number",
-        description: "Max number of relevant PRs to return (default: 3)"
+        description: "Max PRs (default 3)"
       },
       max_files: {
         type: "number",
-        description: "Max number of relevant files to return (default: 3)"
+        description: "Max files (default 3)"
       }
     },
     required: ["repo", "query"]
@@ -53066,24 +53162,21 @@ async function handleFindImplementationContext(args) {
 init_db();
 var findSimilarTool = {
   name: "find_similar",
-  description: `Search the indexed graph for issues and PRs similar to a query.
-Uses BM25 full-text search to find the most relevant issues and pull requests, ranked by relevance.
-Useful for discovering prior art before starting an implementation, or finding duplicates before filing an issue.
-Requires the repo to have been indexed with \`git-wik index <repo>\`.`,
+  description: `BM25 search for issues and PRs similar to a query. Use before filing an issue or starting an implementation.`,
   inputSchema: {
     type: "object",
     properties: {
       repo: {
         type: "string",
-        description: 'GitHub repo in "owner/name" format, e.g. "expressjs/express"'
+        description: "owner/name"
       },
       query: {
         type: "string",
-        description: "Natural-language search query"
+        description: "Search query"
       },
       limit: {
         type: "number",
-        description: "Max number of results to return (default: 5, max: 10)"
+        description: "Max results (default 5, max 10)"
       }
     },
     required: ["repo", "query"]
@@ -53116,20 +53209,17 @@ async function handleFindSimilar(args) {
 init_db();
 var getPRContextTool = {
   name: "get_pr_context",
-  description: `Get structured intelligence for a specific pull request.
-Returns the PR's problem statement, chosen approach, files changed, design decisions, constraints, and rejected alternatives.
-Use this when you know a specific PR number is relevant and want its full decision context.
-Requires the repo to have been indexed with \`git-wik index <repo>\`.`,
+  description: `Decision context for a specific PR: approach, files changed, design decisions, constraints, rejected alternatives.`,
   inputSchema: {
     type: "object",
     properties: {
       repo: {
         type: "string",
-        description: 'GitHub repo in "owner/name" format, e.g. "expressjs/express"'
+        description: "owner/name"
       },
       pr_number: {
         type: "number",
-        description: "The pull request number"
+        description: "PR number"
       }
     },
     required: ["repo", "pr_number"]
@@ -53449,38 +53539,21 @@ function formatContextPackage(result, db, query, repo, tokenBudget = 700) {
 // src/mcp/tools/get-context.ts
 var getContextTool = {
   name: "get_context",
-  description: `Unified repo intelligence for any query type \u2014 the fastest way to understand what changed, why, and what constraints exist.
-
-Query can be:
-- A file path:       "src/auth/middleware.ts"
-- An issue number:   "#123" or "123"
-- A PR number:       "pr#456" or "pr456"
-- A feature/keyword: "rate limiting" or "session handling"
-
-Returns \u2264700 tokens covering:
-- PRs that directly relate to the query, with merge date and review outcomes
-- Open and closed issues related to the query
-- Linked/dependent PRs discovered via comment cross-references and DEPENDS_ON edges
-- Co-changed files (from git history)
-- LLM-inferred design decisions (confidence \u22650.7 with supporting rationale, marked [inferred:N.NN])
-- Count of omitted low-evidence inferences
-
-If the repo isn't indexed yet, returns a setup hint instead of failing.
-Index a repo with: npx git-wik index <owner/repo>`,
+  description: `Repo history intelligence. Pass a file path, issue#, PR#, or keyword \u2014 returns related PRs/issues, co-changed files, and design decisions in \u2264700 tokens. Use before git log/blame. Auto-indexes on first call.`,
   inputSchema: {
     type: "object",
     properties: {
       repo: {
         type: "string",
-        description: 'GitHub repo in "owner/name" format, e.g. "expressjs/express"'
+        description: 'owner/name, e.g. "expressjs/express"'
       },
       query: {
         type: "string",
-        description: "File path, issue#, PR# (pr#N), or natural-language keyword/feature name"
+        description: 'File path, "#123", "pr#456", or keyword'
       },
       token_budget: {
         type: "number",
-        description: "Max output tokens (default: 700, max: 900)"
+        description: "Max tokens (default 700, max 900)"
       }
     },
     required: ["repo", "query"]
@@ -53516,6 +53589,12 @@ async function handleGetContext(args) {
       }
     }
     const seed = detectSeed(query.trim());
+    if (seed.type === "file") {
+      await Promise.race([
+        hydrateFileContextIfSparse(db, repo, seed.value),
+        new Promise((resolve) => setTimeout(resolve, 8e3))
+      ]);
+    }
     const traversal = traverseFromSeed(db, repo, seed, { maxPRs: 12, maxIssues: 8 });
     const output = formatContextPackage(traversal, db, query.trim(), repo, tokenBudget);
     return { content: [{ type: "text", text: output }] };
@@ -53676,27 +53755,13 @@ async function whyLine(repo, filePath, lineNumber) {
 // src/mcp/tools/explain-line.ts
 var explainLineTool = {
   name: "explain_line",
-  description: `Explain why a specific line of code exists by tracing it through git blame \u2192 PR \u2192 design decisions.
-
-Given a file path and optional line number, returns:
-- The commit that last changed that line (git blame)
-- The PR that introduced that commit
-- Why that PR was made (LLM-extracted rationale, confidence-gated)
-- What alternatives were rejected
-- What constraints it enforced
-- Which issues it fixed
-
-Use this when you're about to modify a line and want to understand the original intent before changing it.
-
-Examples:
-  explain_line({ repo: "owner/repo", file: "src/auth/middleware.ts", line: 42 })
-  explain_line({ repo: "owner/repo", file: "src/auth/middleware.ts" })  // most recent PR for file`,
+  description: `Why does this line exist? Traces git blame \u2192 commit \u2192 PR \u2192 design decisions and rejected alternatives. Use before modifying a line.`,
   inputSchema: {
     type: "object",
     properties: {
-      repo: { type: "string", description: "GitHub repo in owner/name format" },
+      repo: { type: "string", description: "owner/name" },
       file: { type: "string", description: "File path relative to repo root" },
-      line: { type: "number", description: "Line number (optional \u2014 omit for file-level context)" }
+      line: { type: "number", description: "Line number (omit for file-level)" }
     },
     required: ["repo", "file"]
   }

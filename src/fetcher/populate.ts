@@ -28,7 +28,7 @@ import {
   parseIssueRelationships,
   extractReferencedPRNumbers,
   parsePRFiles,
-  parsePRReviewers,
+  parsePRReviewerStates,
   parsePROutcome,
   buildThreadText,
   buildPRThreadText,
@@ -92,13 +92,14 @@ function upsertMilestoneForNode(
   nodeId: string,
   milestone: GhMilestone | null | undefined
 ): void {
-  if (!milestone) return;
-  const msId = `${repo}::milestone::${milestone.number}`;
+  const normalized = normalizeMilestone(milestone);
+  if (!normalized) return;
+  const msId = `${repo}::milestone::${normalized.number}`;
   upsertMilestone(db, {
     id: msId, repo,
-    number: milestone.number,
-    title: milestone.title,
-    state: milestone.state,
+    number: normalized.number,
+    title: normalized.title,
+    state: normalized.state,
   });
   upsertEdge(db, {
     from_type: nodeType, from_id: nodeId,
@@ -106,6 +107,23 @@ function upsertMilestoneForNode(
     to_type: "milestone", to_id: msId,
     weight: 1, metadata_json: null,
   });
+}
+
+function normalizeMilestone(
+  milestone: GhMilestone | null | undefined
+): { number: number; title: string; state: string } | null {
+  if (!milestone || !Number.isInteger(milestone.number)) return null;
+  const safeTitle = typeof milestone.title === "string" && milestone.title.trim()
+    ? milestone.title
+    : `Milestone ${milestone.number}`;
+  const safeState = typeof milestone.state === "string" && milestone.state.trim()
+    ? milestone.state
+    : "open";
+  return {
+    number: milestone.number,
+    title: safeTitle,
+    state: safeState,
+  };
 }
 
 // ── Single-issue population ────────────────────────────────────────────────────
@@ -310,10 +328,18 @@ async function _upsertPR(
   }
 
   // Reviewers
-  for (const login of parsePRReviewers(pr)) {
-    const contribId = `${repo}::${login}`;
-    upsertContributor(db, { id: contribId, repo, username: login, display_name: null });
-    upsertEdge(db, { from_type: "pr", from_id: prId, edge_type: "REVIEWED_BY", to_type: "contributor", to_id: contribId, weight: 1, metadata_json: null });
+  for (const reviewer of parsePRReviewerStates(pr)) {
+    const contribId = `${repo}::${reviewer.login}`;
+    upsertContributor(db, { id: contribId, repo, username: reviewer.login, display_name: null });
+    upsertEdge(db, {
+      from_type: "pr",
+      from_id: prId,
+      edge_type: "REVIEWED_BY",
+      to_type: "contributor",
+      to_id: contribId,
+      weight: 1,
+      metadata_json: JSON.stringify({ states: reviewer.states }),
+    });
   }
 
   // LLM enrichment (opt-in, gated on API key + quality signal)
@@ -417,7 +443,15 @@ export async function populateRepoIndex(
     }
     const milestones = await fetchMilestones(repo);
     for (const m of milestones) {
-      upsertMilestone(db, { id: `${repo}::milestone::${m.number}`, repo, number: m.number, title: m.title, state: m.state });
+      const normalized = normalizeMilestone(m);
+      if (!normalized) continue;
+      upsertMilestone(db, {
+        id: `${repo}::milestone::${normalized.number}`,
+        repo,
+        number: normalized.number,
+        title: normalized.title,
+        state: normalized.state,
+      });
     }
     markFetched(db, repo, "repo:labels");
   }

@@ -47,15 +47,20 @@ export function parsePRFiles(pr: GhPRRaw): string[] {
 }
 
 export function parsePRReviewers(pr: GhPRRaw): string[] {
+  return parsePRReviewerStates(pr).map((r) => r.login);
+}
+
+export function parsePRReviewerStates(pr: GhPRRaw): Array<{ login: string; states: string[] }> {
   const author = pr.author?.login ?? "";
-  const seen = new Set<string>();
+  const seen = new Map<string, Set<string>>();
   for (const r of pr.reviews ?? []) {
     const login = r.author?.login ?? "";
     if (login && login !== author && !login.endsWith("[bot]")) {
-      seen.add(login);
+      if (!seen.has(login)) seen.set(login, new Set<string>());
+      if (r.state) seen.get(login)!.add(r.state);
     }
   }
-  return [...seen];
+  return [...seen.entries()].map(([login, states]) => ({ login, states: [...states] }));
 }
 
 export function parsePROutcome(
